@@ -14,7 +14,7 @@ import java.util.Map;
  * Controlador REST para el microservicio de Auditoría.
  */
 @RestController
-@CrossOrigin(origins = "*", allowedHeaders = "*")
+@CrossOrigin(originPatterns = "*", allowedHeaders = "*")
 @RequestMapping("/api/auditoria")
 public class AuditoriaController {
 
