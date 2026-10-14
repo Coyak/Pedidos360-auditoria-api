@@ -40,9 +40,9 @@ public class AuditoriaController {
 
     /**
      * Lista todos los registros auditados
-     * GET /api/auditoria
+     * GET /api/auditoria o /api/auditoria/
      */
-    @GetMapping
+    @GetMapping({"", "/"})
     public ResponseEntity<List<RegistroAuditoria>> listarTodos() {
         return ResponseEntity.ok(auditoriaService.listarRegistros());
     }
