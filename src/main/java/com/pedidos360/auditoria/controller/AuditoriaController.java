@@ -14,7 +14,7 @@ import java.util.Map;
  * Controlador REST para el microservicio de Auditoría.
  */
 @RestController
-@CrossOrigin(originPatterns = "*", allowCredentials = "true")
+@CrossOrigin(origins = "*")
 @RequestMapping("/api/auditoria")
 public class AuditoriaController {
 
@@ -42,7 +42,7 @@ public class AuditoriaController {
      * Lista todos los registros auditados
      * GET /api/auditoria o /api/auditoria/
      */
-    @GetMapping({"", "/"})
+    @GetMapping({ "", "/" })
     public ResponseEntity<List<RegistroAuditoria>> listarTodos() {
         return ResponseEntity.ok(auditoriaService.listarRegistros());
     }
@@ -56,7 +56,8 @@ public class AuditoriaController {
         return auditoriaService.buscarPorPedidoId(pedidoId)
                 .<ResponseEntity<?>>map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(Map.of("status", "ERROR", "message", "Registro de auditoría no encontrado para el pedido: " + pedidoId)));
+                        .body(Map.of("status", "ERROR", "message",
+                                "Registro de auditoría no encontrado para el pedido: " + pedidoId)));
     }
 
     /**
