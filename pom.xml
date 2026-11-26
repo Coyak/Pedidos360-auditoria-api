@@ -31,6 +31,12 @@
             <artifactId>spring-boot-starter-amqp</artifactId>
         </dependency>
 
+        <!-- Spring Kafka (Auditoría de Pedidos por Streaming) -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!-- Jackson Datatype JSR310 -->
         <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>

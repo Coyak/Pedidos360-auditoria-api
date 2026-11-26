@@ -1,119 +1,77 @@
 package com.pedidos360.auditoria.config;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import org.springframework.amqp.core.*;
-import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
-import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
-import org.springframework.amqp.support.converter.MessageConverter;
+import com.pedidos360.auditoria.dto.PedidoEventoDTO;
+import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.annotation.EnableKafka;
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
+import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
+import org.springframework.kafka.support.serializer.JsonDeserializer;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Configuración centralizada de RabbitMQ para Pedidos360 Auditoría API.
- * Declara infraestructura de cola de auditoría transaccional con su respectiva DLQ,
- * listeners con confirmación manual (ACK/NACK) y soporte para deserialización JSON.
+ * Configuración de Apache Kafka para Pedidos360 Auditoría API.
+ * Consume eventos de compras confirmadas desde el tópico 'pedidos-auditoria-topic'.
  */
+@EnableKafka
 @Configuration
 public class RabbitMQConfig {
 
-    @Value("${pedidos360.rabbitmq.exchange.pedidos}")
-    private String pedidosExchangeName;
+    @Value("${spring.kafka.bootstrap-servers:kafka:29092}")
+    private String bootstrapServers;
 
-    @Value("${pedidos360.rabbitmq.exchange.dlx}")
-    private String dlxExchangeName;
+    @Value("${spring.kafka.consumer.group-id:auditoria-consumer-group}")
+    private String groupId;
 
-    @Value("${pedidos360.rabbitmq.queue.auditoria}")
-    private String auditoriaQueueName;
+    @Value("${pedidos360.kafka.topic.auditoria:pedidos-auditoria-topic}")
+    private String auditoriaTopicName;
 
-    @Value("${pedidos360.rabbitmq.queue.auditoria-dlq}")
-    private String auditoriaDlqName;
-
-    @Value("${pedidos360.rabbitmq.routing-key.creado}")
-    private String pedidoCreadoRoutingKey;
-
-    @Value("${pedidos360.rabbitmq.routing-key.auditoria-dlq}")
-    private String auditoriaDlqRoutingKey;
-
-    // 1. Topic Exchange Principal
     @Bean
-    public TopicExchange pedidosExchange() {
-        return new TopicExchange(pedidosExchangeName, true, false);
-    }
-
-    // 2. Direct Exchange para Dead Letter Queue
-    @Bean
-    public DirectExchange deadLetterExchange() {
-        return new DirectExchange(dlxExchangeName, true, false);
-    }
-
-    // 3. Cola de Auditoría con configuración Dead Letter Exchange
-    @Bean
-    public Queue auditoriaQueue() {
-        Map<String, Object> args = new HashMap<>();
-        args.put("x-dead-letter-exchange", dlxExchangeName);
-        args.put("x-dead-letter-routing-key", auditoriaDlqRoutingKey);
-
-        return QueueBuilder.durable(auditoriaQueueName)
-                .withArguments(args)
+    public NewTopic pedidosAuditoriaTopic() {
+        return TopicBuilder.name(auditoriaTopicName)
+                .partitions(1)
+                .replicas(1)
                 .build();
     }
 
-    // 4. Cola DLQ para Auditoría
     @Bean
-    public Queue auditoriaDlq() {
-        return QueueBuilder.durable(auditoriaDlqName).build();
-    }
-
-    // 5. Binding entre TopicExchange y Cola de Auditoría
-    @Bean
-    public Binding bindingAuditoria() {
-        return BindingBuilder
-                .bind(auditoriaQueue())
-                .to(pedidosExchange())
-                .with(pedidoCreadoRoutingKey);
-    }
-
-    // 6. Binding entre Dead Letter Exchange y Cola DLQ de Auditoría
-    @Bean
-    public Binding bindingAuditoriaDlq() {
-        return BindingBuilder
-                .bind(auditoriaDlq())
-                .to(deadLetterExchange())
-                .with(auditoriaDlqRoutingKey);
-    }
-
-    // 7. Conversor de mensajes JSON
-    @Bean
-    public MessageConverter jsonMessageConverter() {
+    public ConsumerFactory<String, PedidoEventoDTO> consumerFactory() {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
-        return new Jackson2JsonMessageConverter(objectMapper);
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+
+        JsonDeserializer<PedidoEventoDTO> jsonDeserializer = new JsonDeserializer<>(PedidoEventoDTO.class, objectMapper, false);
+        jsonDeserializer.addTrustedPackages("*");
+
+        Map<String, Object> props = new HashMap<>();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+
+        return new DefaultKafkaConsumerFactory<>(
+                props,
+                new ErrorHandlingDeserializer<>(new StringDeserializer()),
+                new ErrorHandlingDeserializer<>(jsonDeserializer)
+        );
     }
 
-    // 8. Contenedor de listeners con soporte para confirmación MANUAL (ACK/NACK explícito)
     @Bean
-    public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(
-            ConnectionFactory connectionFactory,
-            MessageConverter jsonMessageConverter) {
-        SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
-        factory.setConnectionFactory(connectionFactory);
-        factory.setMessageConverter(jsonMessageConverter);
-        factory.setAcknowledgeMode(AcknowledgeMode.MANUAL);
-        factory.setPrefetchCount(10);
+    public ConcurrentKafkaListenerContainerFactory<String, PedidoEventoDTO> kafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, PedidoEventoDTO> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(consumerFactory());
         return factory;
-    }
-
-    @Bean
-    public RabbitTemplate rabbitTemplate(ConnectionFactory connectionFactory, MessageConverter jsonMessageConverter) {
-        RabbitTemplate template = new RabbitTemplate(connectionFactory);
-        template.setMessageConverter(jsonMessageConverter);
-        return template;
     }
 }
